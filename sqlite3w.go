@@ -3,19 +3,25 @@ package sqlite3w
 import (
 	"os"
 	"reflect"
+	"regexp"
 
 	"github.com/bvinc/go-sqlite-lite/sqlite3"
+	"github.com/ompluscator/dynamic-struct"
 )
 
 type Sqlite3w struct {
 	path        string
 	Create      bool
 	StopOnError bool
-	conn        *sqlite3.Conn
+	Conn        *sqlite3.Conn
 	Stmt        *sqlite3.Stmt
 	err         error
 	colidx      map[string]int
+	LastID      int64
+	Changes     int
 	EOF         bool
+	reInsert    *regexp.Regexp
+	data        *dynamicstruct.Builder
 }
 
 func New() *Sqlite3w {
@@ -24,6 +30,8 @@ func New() *Sqlite3w {
 	rs.Create = false
 	rs.colidx = make(map[string]int)
 	rs.EOF = false
+	rs.LastID = -1
+	rs.reInsert = regexp.MustCompile(`(?i)^(?:\s*)insert`)
 	return rs
 }
 
@@ -40,7 +48,7 @@ func (rs *Sqlite3w) Connect(path string) error {
 		}
 	}
 	rs.path = path
-	rs.conn, rs.err = sqlite3.Open(path)
+	rs.Conn, rs.err = sqlite3.Open(path)
 	if rs.err != nil {
 		if rs.StopOnError {
 			panic(rs.err)
@@ -52,7 +60,7 @@ func (rs *Sqlite3w) Connect(path string) error {
 
 func (rs *Sqlite3w) Execute(qry string, args ...interface{}) {
 	rs.EOF = false
-	stmt, err := rs.conn.Prepare(qry, args...)
+	stmt, err := rs.Conn.Prepare(qry, args...)
 	if err != nil {
 		if rs.StopOnError {
 			panic(err)
@@ -85,13 +93,28 @@ func (rs *Sqlite3w) Execute(qry string, args ...interface{}) {
 
 //Do Exec : insert, delete, updates
 func (rs *Sqlite3w) Do(qry string, args ...interface{}) {
-	err := rs.conn.Exec(qry, args...)
+	rs.LastID = -1
+	rs.Changes = 0
+	err := rs.Conn.Exec(qry, args...)
 	if err != nil {
 		if rs.StopOnError {
 			panic(err)
 		}
 		return
 	}
+	if rs.reInsert.MatchString(qry) {
+		rs.LastID = rs.Conn.LastInsertRowID()
+	} else {
+		rs.Changes = rs.Conn.Changes()
+	}
+}
+
+func (rs *Sqlite3w) Insert(table string, s interface{}) {
+
+}
+
+func (rs *Sqlite3w) Update(table, where string, s interface{}) {
+
 }
 
 //struct {
@@ -149,3 +172,5 @@ func (rs *Sqlite3w) FetchStruct(s interface{}) bool {
 	}
 	return true
 }
+
+//func (rs *Sqlite3w) FetchMap
