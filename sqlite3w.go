@@ -28,7 +28,7 @@ func New() *Sqlite3w {
 }
 
 func (rs *Sqlite3w) Connect(path string) error {
-	if !rs.create {
+	if !rs.Create {
 		_, err := os.Stat(path)
 		if err != nil {
 			if !rs.Create {
@@ -52,7 +52,7 @@ func (rs *Sqlite3w) Connect(path string) error {
 
 func (rs *Sqlite3w) Execute(qry string, args ...interface{}) {
 	rs.EOF = false
-	Stmt, err := rs.conn.Prepare(qry, args...)
+	stmt, err := rs.conn.Prepare(qry, args...)
 	if err != nil {
 		if rs.StopOnError {
 			panic(err)
@@ -83,6 +83,7 @@ func (rs *Sqlite3w) Execute(qry string, args ...interface{}) {
 	}
 }
 
+//Do Exec : insert, delete, updates
 func (rs *Sqlite3w) Do(qry string, args ...interface{}) {
 	err := rs.conn.Exec(qry, args...)
 	if err != nil {
