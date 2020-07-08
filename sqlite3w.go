@@ -1,7 +1,6 @@
 package sqlite3w
 
 import (
-	//"errors"
 	"os"
 	"reflect"
 
@@ -10,17 +9,21 @@ import (
 
 type Sqlite3w struct {
 	path        string
-	create      bool
-	stopOnError bool
+	Create      bool
+	StopOnError bool
 	conn        *sqlite3.Conn
-	stmt        *sqlite3.Stmt
+	Stmt        *sqlite3.Stmt
 	err         error
+	colidx      map[string]int
+	EOF         bool
 }
 
 func New() *Sqlite3w {
 	rs := new(Sqlite3w)
-	rs.stopOnError = true
-	rs.create = true
+	rs.StopOnError = true
+	rs.Create = false
+	rs.colidx = make(map[string]int)
+	rs.EOF = false
 	return rs
 }
 
@@ -28,9 +31,9 @@ func (rs *Sqlite3w) Connect(path string) error {
 	if !rs.create {
 		_, err := os.Stat(path)
 		if err != nil {
-			if !rs.create {
-				if rs.stopOnError {
-					panic(rs.err)
+			if !rs.Create {
+				if rs.StopOnError {
+					panic("path does not exists " + path)
 				}
 				return err
 			}
@@ -39,32 +42,52 @@ func (rs *Sqlite3w) Connect(path string) error {
 	rs.path = path
 	rs.conn, rs.err = sqlite3.Open(path)
 	if rs.err != nil {
-		if rs.stopOnError {
+		if rs.StopOnError {
 			panic(rs.err)
 		}
 		return rs.err
 	}
-	defer rs.conn.Close()
 	return nil
 }
 
-func (rs *Sqlite3w) PrepareExecute(qry string) {
-	stmt, err := rs.conn.Prepare(qry)
+func (rs *Sqlite3w) Execute(qry string, args ...interface{}) {
+	rs.EOF = false
+	Stmt, err := rs.conn.Prepare(qry, args...)
 	if err != nil {
-		if rs.stopOnError {
-			panic(rs.err)
+		if rs.StopOnError {
+			panic(err)
 		}
 		return
 	}
-	rs.stmt = stmt
-	defer stmt.Close()
+	rs.Stmt = stmt
+	// Get first row
+	hasRow, err := rs.Stmt.Step()
+	if err != nil {
+		if rs.StopOnError {
+			panic(rs.err)
+		}
+		rs.EOF = true
+		return
+	}
+	if !hasRow {
+		rs.EOF = true
+		return
+	}
+	// Delete information on every new query
+	for k := range rs.colidx {
+		delete(rs.colidx, k)
+	}
+	// Get column indexes
+	for i := 0; i < rs.Stmt.ColumnCount(); i++ {
+		rs.colidx[rs.Stmt.ColumnName(i)] = i
+	}
 }
 
-func (rs *Sqlite3w) Do(qry string) {
-	err := rs.conn.Exec(qry)
+func (rs *Sqlite3w) Do(qry string, args ...interface{}) {
+	err := rs.conn.Exec(qry, args...)
 	if err != nil {
-		if rs.stopOnError {
-			panic(rs.err)
+		if rs.StopOnError {
+			panic(err)
 		}
 		return
 	}
@@ -75,51 +98,53 @@ func (rs *Sqlite3w) Do(qry string) {
 //	cstr string `column:name`
 //  ...
 //}
-
+// FecthStruct(s strcut)
 func (rs *Sqlite3w) FetchStruct(s interface{}) bool {
-	colidx := make(map[string]int)
 
 	// Clear all values of the struct
 	p := reflect.ValueOf(s).Elem()
 	p.Set(reflect.Zero(p.Type()))
 
-	hasRow, err := rs.stmt.Step()
-	if err != nil {
-		if rs.stopOnError {
-			panic(rs.err)
-		}
+	if rs.EOF {
 		return false
 	}
-	if !hasRow {
-		return false
-	}
-	for i := 0; i < rs.stmt.ColumnCount(); i++ {
-		colidx[rs.stmt.ColumnName(i)] = i
-	}
-	t := reflect.TypeOf(s)
+
 	tv := reflect.ValueOf(s)
-	for i := 0; i < t.NumField(); i++ {
+	t := tv.Type().Elem()
+
+	for i := 0; i < tv.Elem().NumField(); i++ {
 		f := t.Field(i)
-		index, ok := colidx[f.Tag.Get("column")]
+		index, ok := rs.colidx[f.Tag.Get("column")]
 		if ok {
-			switch t.Kind() {
+			switch f.Type.Kind() {
 			case reflect.Int:
-				val, ok, err := rs.stmt.ColumnInt64(index)
+				val, ok, err := rs.Stmt.ColumnInt64(index)
 				if err == nil && ok {
 					tv.Elem().Field(i).SetInt(val)
 				}
 			case reflect.String:
-				val, ok, err := rs.stmt.ColumnText(index)
+				val, ok, err := rs.Stmt.ColumnText(index)
 				if err == nil && ok {
 					tv.Elem().Field(i).SetString(val)
 				}
 			case reflect.Float64:
-				val, ok, err := rs.stmt.ColumnDouble(index)
+				val, ok, err := rs.Stmt.ColumnDouble(index)
 				if err == nil && ok {
 					tv.Elem().Field(i).SetFloat(val)
 				}
 			}
 		}
+	}
+	hasRow, err := rs.Stmt.Step()
+	if err != nil {
+		if rs.StopOnError {
+			panic(rs.err)
+		}
+		rs.EOF = true
+		return false
+	}
+	if !hasRow {
+		rs.EOF = true
 	}
 	return true
 }
