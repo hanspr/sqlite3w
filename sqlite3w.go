@@ -1,12 +1,13 @@
 package sqlite3w
 
 import (
-	//"fmt"
+	"fmt"
 	"os"
 	"reflect"
 	"regexp"
 
-	//"strings"
+	//"strconv"
+	"strings"
 
 	"github.com/bvinc/go-sqlite-lite/sqlite3"
 )
@@ -110,12 +111,45 @@ func (rs *Sqlite3w) Do(qry string, args ...interface{}) {
 	}
 }
 
-func (rs *Sqlite3w) Insert(table string, s interface{}) {
+func (rs *Sqlite3w) InsertStruct(table string, s interface{}) {
+	data := StructToMap(s)
 
+	rs.InsertMap(table, data)
 }
 
-func (rs *Sqlite3w) Update(table, where string, s interface{}) {
+func (rs *Sqlite3w) InsertMap(table string, d map[string]string) {
+	var columns, values string
 
+	for col, val := range d {
+		columns = columns + "'" + col + "',"
+		val = strings.ReplaceAll(val, "'", "''")
+		values = values + "'" + val + "',"
+	}
+	columns = strings.TrimSuffix(columns, ",")
+	values = strings.TrimSuffix(values, ",")
+	qry := "insert into " + table + " (" + columns + ") values (" + values + ")"
+	rs.Do(qry)
+}
+
+func (rs *Sqlite3w) UpdateStruct(table, where string, s interface{}) {
+	data := StructToMap(s)
+	rs.UpdateMap(table, where, data)
+}
+
+func (rs *Sqlite3w) UpdateMap(table, where string, d map[string]string) {
+	var values, qry string
+
+	for col, val := range d {
+		val = strings.ReplaceAll(val, "'", "''")
+		values = values + col + "='" + val + "',"
+	}
+	values = strings.TrimSuffix(values, ",")
+	if where != "" {
+		qry = "update " + table + " set " + values + " where " + where
+	} else {
+		qry = "update " + table + " set " + values
+	}
+	rs.Do(qry)
 }
 
 //struct {
@@ -147,15 +181,15 @@ func (rs *Sqlite3w) FetchStruct(s interface{}) bool {
 				if err == nil && ok {
 					tv.Elem().Field(i).SetInt(val)
 				}
-			case reflect.String:
-				val, ok, err := rs.Stmt.ColumnText(index)
-				if err == nil && ok {
-					tv.Elem().Field(i).SetString(val)
-				}
 			case reflect.Float64:
 				val, ok, err := rs.Stmt.ColumnDouble(index)
 				if err == nil && ok {
 					tv.Elem().Field(i).SetFloat(val)
+				}
+			default:
+				val, ok, err := rs.Stmt.ColumnText(index)
+				if err == nil && ok {
+					tv.Elem().Field(i).SetString(val)
 				}
 			}
 		}
@@ -201,6 +235,34 @@ func (rs *Sqlite3w) FetchMap() map[string]string {
 	if !hasRow {
 		rs.EOF = true
 		return nil
+	}
+	return data
+}
+
+// General Functions
+
+func StructToMap(s interface{}) map[string]string {
+	data := make(map[string]string)
+	tv := reflect.ValueOf(s)
+	t := tv.Type().Elem()
+
+	for i := 0; i < tv.Elem().NumField(); i++ {
+		f := t.Field(i)
+		if f.Tag.Get("column") != "" {
+			switch f.Type.Kind() {
+			case reflect.Int:
+				data[f.Tag.Get("column")] = fmt.Sprintf("%v", tv.Elem().Field(i).Int())
+			case reflect.Float64:
+				data[f.Tag.Get("column")] = fmt.Sprintf("%v", tv.Elem().Field(i).Float())
+			default:
+				data[f.Tag.Get("column")] = tv.Elem().Field(i).String()
+			}
+		}
+	}
+	for k := range data {
+		if data[k] == "" {
+			delete(data, k)
+		}
 	}
 	return data
 }
