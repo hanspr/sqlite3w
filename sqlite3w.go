@@ -1,12 +1,14 @@
 package sqlite3w
 
 import (
+	//"fmt"
 	"os"
 	"reflect"
 	"regexp"
 
+	//"strings"
+
 	"github.com/bvinc/go-sqlite-lite/sqlite3"
-	"github.com/ompluscator/dynamic-struct"
 )
 
 type Sqlite3w struct {
@@ -21,7 +23,6 @@ type Sqlite3w struct {
 	Changes     int
 	EOF         bool
 	reInsert    *regexp.Regexp
-	data        *dynamicstruct.Builder
 }
 
 func New() *Sqlite3w {
@@ -123,8 +124,8 @@ func (rs *Sqlite3w) Update(table, where string, s interface{}) {
 //  ...
 //}
 // FecthStruct(s strcut)
-func (rs *Sqlite3w) FetchStruct(s interface{}) bool {
 
+func (rs *Sqlite3w) FetchStruct(s interface{}) bool {
 	// Clear all values of the struct
 	p := reflect.ValueOf(s).Elem()
 	p.Set(reflect.Zero(p.Type()))
@@ -173,4 +174,33 @@ func (rs *Sqlite3w) FetchStruct(s interface{}) bool {
 	return true
 }
 
-//func (rs *Sqlite3w) FetchMap
+//func (rs *Sqlite3w) FetchMap as strings
+func (rs *Sqlite3w) FetchMap() map[string]string {
+	data := make(map[string]string)
+
+	if rs.EOF {
+		return nil
+	}
+
+	for col, i := range rs.colidx {
+		v, ok, err := rs.Stmt.ColumnText(i)
+		if ok && err == nil {
+			data[col] = v
+		} else {
+			data[col] = ""
+		}
+	}
+	hasRow, err := rs.Stmt.Step()
+	if err != nil {
+		if rs.StopOnError {
+			panic(rs.err)
+		}
+		rs.EOF = true
+		return nil
+	}
+	if !hasRow {
+		rs.EOF = true
+		return nil
+	}
+	return data
+}
