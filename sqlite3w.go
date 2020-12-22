@@ -24,6 +24,7 @@ type Sqlite3w struct {
 	Changes     int
 	EOF         bool
 	reInsert    *regexp.Regexp
+	EnableWAL   bool
 }
 
 func New() *Sqlite3w {
@@ -34,6 +35,7 @@ func New() *Sqlite3w {
 	rs.EOF = false
 	rs.LastID = -1
 	rs.reInsert = regexp.MustCompile(`(?i)^(?:\s*)insert`)
+	rs.EnableWAL = true
 	return rs
 }
 
@@ -57,7 +59,26 @@ func (rs *Sqlite3w) Connect(path string) error {
 		}
 		return rs.err
 	}
+	if rs.EnableWAL {
+		rs.ActivateWAL()
+	} else {
+		rs.DisableWAL()
+	}
 	return nil
+}
+
+func (rs *Sqlite3w) ActivateWAL() {
+	_, err := os.Stat(rs.path + "-wal")
+	if err != nil {
+		rs.Do("PRAGMA journal_mode=WAL")
+	}
+}
+
+func (rs *Sqlite3w) DisableWAL() {
+	_, err := os.Stat(rs.path + "-wal")
+	if err == nil {
+		rs.Do("PRAGMA journal_mode=DELETE")
+	}
 }
 
 func (rs *Sqlite3w) Execute(qry string, args ...interface{}) {
