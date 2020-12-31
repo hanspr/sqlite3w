@@ -43,12 +43,10 @@ func (rs *Sqlite3w) Connect(path string) error {
 	if !rs.Create {
 		_, err := os.Stat(path)
 		if err != nil {
-			if !rs.Create {
-				if rs.StopOnError {
-					panic("path does not exists " + path)
-				}
-				return err
+			if rs.StopOnError {
+				panic("path does not exists : " + path)
 			}
+			return err
 		}
 	}
 	rs.path = path
